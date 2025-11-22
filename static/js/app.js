@@ -1,33 +1,61 @@
-// Client-side filter for employees
-const filter = document.getElementById('filter');
-const rows = document.getElementById('rows');
-
-filter?.addEventListener('input', () => {
-  const q = filter.value.toLowerCase();
-  for (const tr of rows.querySelectorAll('tr')) {
-    const employee_id  = tr.querySelector('.employee_id')?.textContent.toLowerCase() || '';
-    const name         = tr.querySelector('.name')?.textContent.toLowerCase() || '';
-    const phone        = tr.querySelector('.phone')?.textContent.toLowerCase() || '';
-    const hourly_rate  = tr.querySelector('.hourly_rate')?.textContent.toLowerCase() || '';
-    const total_hours  = tr.querySelector('.total_hours')?.textContent.toLowerCase() || '';
-
-    tr.style.display = (
-      employee_id.includes(q) ||
-      name.includes(q) ||
-      phone.includes(q) ||
-      hourly_rate.includes(q) ||
-      total_hours.includes(q)
-    ) ? '' : 'none';
-  }
+// Filter employee table
+document.getElementById('filter').addEventListener('input', function(e){
+    let val = e.target.value.toLowerCase();
+    document.querySelectorAll('#rows tr').forEach(tr=>{
+        tr.style.display = [...tr.querySelectorAll('td')].some(td=>td.textContent.toLowerCase().includes(val)) ? '' : 'none';
+    });
 });
 
-// Edit modal populate
-const editModal = document.getElementById('editModal');
-editModal?.addEventListener('show.bs.modal', (ev) => {
-  const btn = ev.relatedTarget;
-  document.getElementById('edit-id').value           = btn.getAttribute('data-id');
-  document.getElementById('edit-employee_id').value  = btn.getAttribute('data-employee_id');
-  document.getElementById('edit-name').value         = btn.getAttribute('data-name');
-  document.getElementById('edit-phone').value        = btn.getAttribute('data-phone');
-  document.getElementById('edit-hourly_rate').value  = btn.getAttribute('data-hourly_rate');
+// Edit modal populate fields
+var editModal = document.getElementById('editModal');
+editModal.addEventListener('show.bs.modal', function(event){
+    var button = event.relatedTarget;
+    document.getElementById('edit-id').value = button.dataset.id;
+    document.getElementById('edit-employee_id').value = button.dataset.employee_id;
+    document.getElementById('edit-name').value = button.dataset.name;
+    document.getElementById('edit-phone').value = button.dataset.phone;
+    document.getElementById('edit-hourly_rate').value = button.dataset.hourly_rate;
+});
+
+// FullCalendar setup
+document.addEventListener('DOMContentLoaded', function() {
+    var calendarEl = document.getElementById('calendar');
+    var scheduleModal = new bootstrap.Modal(document.getElementById('scheduleModal'));
+    var scheduleForm = document.getElementById('scheduleForm');
+    var scheduleDateInput = document.getElementById('schedule-date');
+
+    var calendar = new FullCalendar.Calendar(calendarEl, {
+        initialView: 'dayGridMonth',
+        selectable: true,
+        editable: true,
+        events: '/api/schedules',  // fetch events from backend
+        select: function(info) {
+            scheduleDateInput.value = info.startStr; // set selected date
+            scheduleModal.show();
+        }
+    });
+    calendar.render();
+
+    // Handle modal form submit
+    scheduleForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        let employee_id = document.getElementById('employee-select').value;
+        let start_time = document.getElementById('start-time').value;
+        let end_time = document.getElementById('end-time').value;
+        let date = scheduleDateInput.value;
+
+        if(employee_id && start_time && end_time){
+            fetch('/api/schedules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ employee_id, date, start_time, end_time })
+            }).then(res=>{
+                if(res.ok){
+                    scheduleModal.hide();
+                    calendar.refetchEvents();
+                    scheduleForm.reset();
+                }
+            });
+        }
+    });
 });
