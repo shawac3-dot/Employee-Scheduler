@@ -43,20 +43,20 @@ body {
   background-color: rgba(13, 110, 253, 0.2);
 }
 
-/* Miami branding (RED) */
+/* Miami branding */
 .miami-title {
   font-family: 'Oswald', sans-serif;
   font-weight: 600;
   letter-spacing: 1px;
   font-size: 1.9rem;
   line-height: 1.1;
-  color: #B00B1E;  /* Red */
+  color: #0d6efd;  /* Blue */
   text-transform: uppercase;
 }
 .miami-subtitle {
   font-family: 'Inter', sans-serif;
   font-size: 0.95rem;
-  color: #B00B1E;  /* Red */
+  color: var(--bs-secondary-color);
 }
 h1, h2, h3, .h1, .h2, .h3 {
   font-family: 'Oswald', sans-serif;
