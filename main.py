@@ -10,6 +10,37 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 DATABASE = '/nfs/employees.db'
 PER_PAGE_DEFAULT = 10
 
+
+
+
+
+def init_db():
+    with app.app_context():
+        db = get_db()
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS employees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id TEXT UNIQUE NOT NULL,
+                name TEXT NOT NULL,
+                phone TEXT,
+                hourly_rate REAL,
+                total_hours REAL DEFAULT 0
+            );
+        ''')
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                employee_id TEXT NOT NULL,
+                date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                FOREIGN KEY(employee_id) REFERENCES employees(employee_id)
+            );
+        ''')
+        db.commit()
+        db.close()
+
+
 def get_db():
     db = sqlite3.connect(DATABASE)
     db.row_factory = sqlite3.Row
@@ -60,6 +91,44 @@ def index():
                 flash('Missing employee id.', 'danger')
             return redirect(url_for('index'))
 
+
+from flask import jsonify
+
+# Get all schedules as events for FullCalendar
+@app.route('/api/schedules', methods=['GET'])
+def get_schedules():
+    db = get_db()
+    rows = db.execute('''
+        SELECT s.id, s.date, s.start_time, s.end_time, e.name
+        FROM schedules s
+        JOIN employees e ON s.employee_id = e.employee_id
+    ''').fetchall()
+    db.close()
+    events = []
+    for r in rows:
+        events.append({
+            "id": r['id'],
+            "title": r['name'],
+            "start": f"{r['date']}T{r['start_time']}",
+            "end": f"{r['date']}T{r['end_time']}"
+        })
+    return jsonify(events)
+
+# Add a schedule
+@app.route('/api/schedules', methods=['POST'])
+def add_schedule():
+    data = request.json
+    db = get_db()
+    db.execute('''
+        INSERT INTO schedules (employee_id, date, start_time, end_time)
+        VALUES (?, ?, ?, ?)
+    ''', (data['employee_id'], data['date'], data['start_time'], data['end_time']))
+    db.commit()
+    db.close()
+    return jsonify({"status": "ok"})
+
+
+        
         # UPDATE employee
         if action == 'update':
             emp_id = request.form.get('id')
