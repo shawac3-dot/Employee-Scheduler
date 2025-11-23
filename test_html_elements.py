@@ -14,7 +14,7 @@ class TestEmployees(unittest.TestCase):
 
     def test_employees(self):
         driver = self.driver
-        driver.get("http://10.48.229.139")  # Replace with your app's URL
+        driver.get("http://10.48.229.48")  # Replace with your app's URL
 
         # Check for the presence of all 10 test employees
         for i in range(10):
