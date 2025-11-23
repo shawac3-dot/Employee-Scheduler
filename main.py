@@ -3,13 +3,49 @@ import sqlite3
 import os
 import math
 from datetime import datetime
+from zoneinfo import ZoneInfo
+import re
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret")
 
 DATABASE = '/nfs/employees.db'
 PER_PAGE_DEFAULT = 10
+EASTERN = ZoneInfo("America/New_York")
 
+# -----------------------
+# Validation Functions
+# -----------------------
+def validate_employee(employee_id, name, phone, hourly_rate):
+    errors = []
+
+    # Employee ID must be integer
+    if not employee_id.isdigit():
+        errors.append("Employee ID must be an integer.")
+
+    # Name must contain only letters and spaces
+    if not re.fullmatch(r"[A-Za-z ]+", name):
+        errors.append("Name must contain only letters and spaces.")
+
+    # Phone must be integer
+    if not phone.isdigit():
+        errors.append("Phone must contain only digits.")
+
+    # Hourly rate must be float with up to 2 decimals
+    try:
+        rate = float(hourly_rate)
+        if rate < 0:
+            errors.append("Hourly rate must be non-negative.")
+        elif len(hourly_rate.split('.')[-1]) > 2:
+            errors.append("Hourly rate can have at most 2 decimal places.")
+    except ValueError:
+        errors.append("Hourly rate must be a number.")
+
+    return errors
+
+# -----------------------
+# Database Functions
+# -----------------------
 def get_db():
     db = sqlite3.connect(DATABASE)
     db.row_factory = sqlite3.Row
@@ -42,12 +78,15 @@ def init_db():
         db.commit()
         db.close()
 
+# -----------------------
+# Routes
+# -----------------------
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
         action = request.form.get('action')
 
-        # DELETE employee
+        # ----------------- DELETE EMPLOYEE -----------------
         if action == 'delete':
             emp_id = request.form.get('id')
             if emp_id:
@@ -60,44 +99,57 @@ def index():
                 flash('Missing employee id.', 'danger')
             return redirect(url_for('index'))
 
-        # UPDATE employee
+        # ----------------- UPDATE EMPLOYEE -----------------
         if action == 'update':
             emp_id = request.form.get('id')
             employee_id = request.form.get('employee_id')
             name = request.form.get('name')
             phone = request.form.get('phone')
             hourly_rate = request.form.get('hourly_rate')
-            if emp_id and employee_id and name and phone and hourly_rate:
-                db = get_db()
-                db.execute('''
-                    UPDATE employees
-                    SET employee_id=?, name=?, phone=?, hourly_rate=?
-                    WHERE id=?
-                ''', (employee_id, name, phone, hourly_rate, emp_id))
-                db.commit(); db.close()
-                flash('Employee updated.', 'success')
-            else:
+
+            if not (emp_id and employee_id and name and phone and hourly_rate):
                 flash('Missing fields for update.', 'danger')
+            else:
+                errors = validate_employee(employee_id, name, phone, hourly_rate)
+                if errors:
+                    flash(" | ".join(errors), "danger")
+                else:
+                    hourly_rate = round(float(hourly_rate), 2)
+                    db = get_db()
+                    db.execute('''
+                        UPDATE employees
+                        SET employee_id=?, name=?, phone=?, hourly_rate=?
+                        WHERE id=?
+                    ''', (employee_id, name, phone, hourly_rate, emp_id))
+                    db.commit(); db.close()
+                    flash('Employee updated successfully.', 'success')
             return redirect(url_for('index'))
 
-        # ADD new employee
+        # ----------------- ADD EMPLOYEE -----------------
         employee_id = request.form.get('employee_id')
         name = request.form.get('name')
         phone = request.form.get('phone')
         hourly_rate = request.form.get('hourly_rate')
+
         if employee_id and name and phone and hourly_rate:
-            db = get_db()
-            db.execute('''
-                INSERT INTO employees (employee_id, name, phone, hourly_rate)
-                VALUES (?, ?, ?, ?)
-            ''', (employee_id, name, phone, hourly_rate))
-            db.commit(); db.close()
-            flash('Employee added successfully.', 'success')
+            errors = validate_employee(employee_id, name, phone, hourly_rate)
+            if errors:
+                flash(" | ".join(errors), "danger")
+            else:
+                hourly_rate = round(float(hourly_rate), 2)
+                db = get_db()
+                db.execute('''
+                    INSERT INTO employees (employee_id, name, phone, hourly_rate)
+                    VALUES (?, ?, ?, ?)
+                ''', (employee_id, name, phone, hourly_rate))
+                db.commit(); db.close()
+                flash('Employee added successfully.', 'success')
         else:
             flash('Missing fields for new employee.', 'danger')
+
         return redirect(url_for('index'))
 
-    # GET: pagination
+    # ----------------- GET EMPLOYEES -----------------
     try:
         page = max(int(request.args.get('page', 1)), 1)
     except ValueError:
@@ -115,14 +167,16 @@ def index():
         (per_page, offset)
     ).fetchall()
 
-    # Calculate total hours worked for each employee
+    employees_with_hours = []
     for emp in employees:
         total_hours = db.execute(
             'SELECT SUM(hours_worked) FROM time_logs WHERE employee_id=?',
             (emp['employee_id'],)
         ).fetchone()[0] or 0
-        emp = dict(emp)
-        emp['total_hours'] = round(total_hours, 2)
+        emp_dict = dict(emp)
+        emp_dict['total_hours'] = round(total_hours, 2)
+        emp_dict['hourly_rate'] = round(emp_dict['hourly_rate'], 2)
+        employees_with_hours.append(emp_dict)
 
     db.close()
 
@@ -134,22 +188,26 @@ def index():
 
     return render_template(
         'index.html',
-        employees=employees,
+        employees=employees_with_hours,
         page=page, pages=pages, per_page=per_page,
         has_prev=has_prev, has_next=has_next, total=total,
         start_page=start_page, end_page=end_page
     )
 
+# -----------------------
+# Clock In/Out
+# -----------------------
 @app.route('/clock', methods=['POST'])
 def clock():
     employee_id = request.form.get('employee_id')
     action = request.form.get('action')  # clock_in or clock_out
+
     if not employee_id or not action:
         flash('Missing employee ID or action.', 'danger')
         return redirect(url_for('index'))
 
     db = get_db()
-    now = datetime.now()
+    now = datetime.now(tz=EASTERN)
 
     if action == 'clock_in':
         db.execute(
@@ -164,11 +222,11 @@ def clock():
             (employee_id,)
         ).fetchone()
         if log:
-            clock_in_time = datetime.fromisoformat(log['clock_in'])
+            clock_in_time = datetime.fromisoformat(log['clock_in']).replace(tzinfo=EASTERN)
             delta_hours = (now - clock_in_time).total_seconds() / 3600
             db.execute(
                 'UPDATE time_logs SET clock_out=?, hours_worked=? WHERE id=?',
-                (now.isoformat(timespec='seconds'), delta_hours, log['id'])
+                (now.isoformat(timespec='seconds'), round(delta_hours, 2), log['id'])
             )
             flash(f'Employee {employee_id} clocked out at {now.strftime("%H:%M:%S")} ({delta_hours:.2f} hours).', 'success')
         else:
@@ -177,6 +235,24 @@ def clock():
     db.commit(); db.close()
     return redirect(url_for('index'))
 
+# -----------------------
+# Reset Total Hours
+# -----------------------
+@app.route('/reset_hours', methods=['POST'])
+def reset_hours():
+    emp_id = request.form.get('employee_id')
+    if emp_id:
+        db = get_db()
+        db.execute('UPDATE time_logs SET hours_worked=0 WHERE employee_id=?', (emp_id,))
+        db.commit(); db.close()
+        flash(f'Total hours reset for employee {emp_id}.', 'success')
+    else:
+        flash('Missing employee ID.', 'danger')
+    return redirect(url_for('index'))
+
+# -----------------------
+# Run App
+# -----------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     init_db()
